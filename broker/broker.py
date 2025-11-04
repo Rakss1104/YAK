@@ -1,4 +1,4 @@
-import redis 
+import redis
 import time
 import threading
 import logging
@@ -11,6 +11,8 @@ app = Flask(__name__)
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+FOLLOWER_URL = "http://192.168.191.242:5002" # <-- IMPORTANT
 
 # Configuration
 BROKER_ID = f"broker-{socket.gethostname()}"
@@ -35,7 +37,7 @@ except redis.ConnectionError as e:
 
 @app.route("/produce", methods=["POST"])
 def handle_produce():
-    """Handle produce requests. Only the leader can accept produce requests."""
+    """Handle produce requests. Only the leader can accept and replicate."""
     if not IS_LEADER:
         leader_id = REDIS_CLIENT.get("leader_lease")
         if not leader_id:
@@ -48,26 +50,44 @@ def handle_produce():
     data = request.get_json()
     if not data:
         return jsonify({"error": "No data provided"}), 400
-        
+
     logger.info(f"[{BROKER_ID}] Received produce request: {data}")
 
     try:
-        # In a real implementation, this would append to the partition log
+        # Step 1: Write to local log
         with open(f"{BROKER_ID}_log.txt", "a") as f:
             f.write(f"{data}\n")
-            
-        # Update high water mark
+
+        # Step 2: Replicate to follower (if follower exists)
+        if FOLLOWER_URL:
+            try:
+                logger.info(f"[{BROKER_ID}] Replicating to follower at {FOLLOWER_URL}...")
+                rep_response = requests.post(
+                    f"{FOLLOWER_URL}/internal/replicate",
+                    json=data,
+                    timeout=3 # 3-second timeout
+                )
+
+                if rep_response.status_code != 200:
+                    logger.error(f"[{BROKER_ID}] Follower replication failed! Status: {rep_response.status_code}")
+                    return jsonify({"error": "Replication failed, write not committed"}), 500
+
+                logger.info(f"[{BROKER_ID}] Follower acknowledged replication.")
+
+            except requests.exceptions.RequestException as e:
+                logger.error(f"[{BROKER_ID}] Failed to connect to follower: {str(e)}")
+                return jsonify({"error": "Follower unreachable, write not committed"}), 500
+
+        # Step 3: All replicas ACK'd. Commit by advancing HWM.
         new_hwm = REDIS_CLIENT.incr("high_water_mark")
-        logger.info(f"[{BROKER_ID}] Successfully wrote message. New HWM: {new_hwm}")
-        
-        # In a real implementation, replicate to followers here
-        
+        logger.info(f"[{BROKER_ID}] Successfully wrote and replicated. New HWM: {new_hwm}")
+
         return jsonify({
             "status": "success",
             "offset": new_hwm,
             "leader_id": BROKER_ID
         }), 200
-        
+
     except Exception as e:
         logger.error(f"[{BROKER_ID}] Failed to process produce request: {str(e)}")
         return jsonify({"error": "Failed to process request"}), 500
@@ -92,7 +112,7 @@ def start_lease_renewal():
     global LEASE_RENEWAL_THREAD
     if LEASE_RENEWAL_THREAD and LEASE_RENEWAL_THREAD.is_alive():
         return
-        
+       
     def _renew_lease():
         global IS_LEADER
         while IS_LEADER:
@@ -101,8 +121,8 @@ def start_lease_renewal():
                 logger.debug(f"[{BROKER_ID}] Renewing leader lease...")
                 # Use SET with EX and XX to only update if we're still the leader
                 success = REDIS_CLIENT.set(
-                    "leader_lease", 
-                    BROKER_ID, 
+                    "leader_lease",
+                    BROKER_ID,
                     ex=LEASE_TIME_SECONDS,
                     xx=True
                 )
@@ -114,17 +134,17 @@ def start_lease_renewal():
                 logger.error(f"[{BROKER_ID}] Failed to renew lease: {str(e)}")
                 IS_LEADER = False
                 break
-    
+   
     LEASE_RENEWAL_THREAD = threading.Thread(target=_renew_lease, daemon=True)
     LEASE_RENEWAL_THREAD.start()
 
 def attempt_leader_election():
     """Attempt to become the leader by acquiring the leader lease in Redis."""
     global IS_LEADER
-    
+   
     try:
         logger.info(f"[{BROKER_ID}] Attempting leader election...")
-        
+       
         # Try to acquire the leader lease
         success = REDIS_CLIENT.set(
             name="leader_lease",
@@ -132,7 +152,7 @@ def attempt_leader_election():
             ex=LEASE_TIME_SECONDS,
             nx=True  # Only set if not exists
         )
-        
+       
         if success:
             IS_LEADER = True
             logger.info(f"[{BROKER_ID}] Successfully became the leader")
@@ -141,7 +161,7 @@ def attempt_leader_election():
             IS_LEADER = False
             leader_id = REDIS_CLIENT.get("leader_lease")
             logger.info(f"[{BROKER_ID}] Current leader is {leader_id}")
-            
+           
     except Exception as e:
         logger.error(f"[{BROKER_ID}] Error during leader election: {str(e)}")
         IS_LEADER = False
@@ -167,7 +187,7 @@ def health():
 def main():
     # Attempt to become leader on startup
     attempt_leader_election()
-    
+   
     # If not leader, start a thread to periodically check for leader status
     if not IS_LEADER:
         def leader_check_thread():
@@ -176,12 +196,12 @@ def main():
                 current_leader = REDIS_CLIENT.get("leader_lease")
                 if not current_leader or current_leader == BROKER_ID:
                     attempt_leader_election()
-        
+       
         threading.Thread(target=leader_check_thread, daemon=True).start()
-    
+   
     logger.info(f"[{BROKER_ID}] Starting broker on port {PORT}")
     logger.info(f"[{BROKER_ID}] Current leader: {REDIS_CLIENT.get('leader_lease') or 'None'}")
-    
+   
     try:
         app.run(host='0.0.0.0', port=PORT, debug=False)
     except Exception as e:
