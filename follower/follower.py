@@ -103,8 +103,10 @@ def handle_replicate():
     if not data:
         return jsonify({"error": "No data provided"}), 400
     
+    logger.info(f"[{BROKER_ID}] Replication data received: {data}")
+    
     # Extract topic and partition from message
-    topic = data.get("topic", "default")
+    topic = data.get("topic") or "default"  # Handle empty strings
     partition = data.get("partition", 0)
         
     try:
