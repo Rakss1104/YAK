@@ -13,7 +13,7 @@ from flask import Flask, request, jsonify, render_template
 app = Flask(__name__)
 
 # ---------------- CONFIG ----------------
-FOLLOWER_URL = "http://192.168.191.242:5002"
+FOLLOWER_URL = None  # Set to None to disable replication, or "http://192.168.191.242:5002" to enable
 BROKER_ID = f"broker-{socket.gethostname()}"
 REDIS_HOST = "192.168.191.242"
 REDIS_PORT = 6379
@@ -102,10 +102,11 @@ def handle_produce():
 
     logger.info(f"[{BROKER_ID}] Raw data received: {data}")
     
-    # Extract topic, key, and payload
-    topic = data.get("topic") or "default"  # Handle empty strings
-    key = data.get("key") or None  # Handle empty strings
-    payload = data.get("payload", data.get("data", {}))
+    # Extract topic, key, and payload from the nested structure
+    data_payload = data.get('data', {})  # Get the nested 'data' object
+    topic = data_payload.get('topic') or data.get('topic') or 'default'  # Handle both nested and top-level topic
+    key = data_payload.get('key') or data.get('key')  # Handle both nested and top-level key
+    payload = data_payload.get('payload', data_payload)  # Use entire data_payload as fallback
     
     logger.info(f"[{BROKER_ID}] Received produce request for topic '{topic}' with key '{key}'")
     METRICS["messages_produced"] += 1
@@ -136,22 +137,23 @@ def handle_produce():
         # Update topic metrics
         METRICS["topics"][topic]["messages"] += 1
 
-        # Step 2: Replicate to follower
+        # Step 2: Replicate to follower (non-blocking)
         if FOLLOWER_URL:
             try:
-                logger.info(f"[{BROKER_ID}] Replicating to follower at {FOLLOWER_URL}...")
+                logger.info(f"[{BROKER_ID}] Attempting to replicate to follower at {FOLLOWER_URL}...")
                 rep = requests.post(f"{FOLLOWER_URL}/internal/replicate", json=message, timeout=3)
-                if rep.status_code != 200:
-                    logger.error(f"[{BROKER_ID}] Follower replication failed ({rep.status_code})")
-                    return jsonify({"error": "Replication failed"}), 500
-                logger.info(f"[{BROKER_ID}] Follower acknowledged replication.")
-                METRICS["replications"] += 1
-                METRICS["last_replication"] = time.strftime("%H:%M:%S")
-                add_activity_log("replicate", f"Data replicated to follower for topic '{topic}'")
+                if rep.status_code == 200:
+                    logger.info(f"[{BROKER_ID}] Follower acknowledged replication.")
+                    METRICS["replications"] += 1
+                    METRICS["last_replication"] = time.strftime("%H:%M:%S")
+                    add_activity_log("replicate", f"Data replicated to follower for topic '{topic}'")
+                else:
+                    logger.warning(f"[{BROKER_ID}] Follower replication failed with status {rep.status_code}. Continuing...")
+                    add_activity_log("warning", f"Follower replication failed (status {rep.status_code}) but message was still committed")
             except requests.exceptions.RequestException as e:
-                logger.error(f"[{BROKER_ID}] Failed to reach follower: {e}")
-                return jsonify({"error": "Follower unreachable"}), 500
-
+                logger.warning(f"[{BROKER_ID}] Failed to reach follower: {e}. Message will still be committed.")
+                add_activity_log("warning", f"Could not reach follower: {str(e)}")
+            
         # Step 3: Commit (update HWM for this topic-partition)
         hwm_key = f"hwm:{topic}:{partition_id}"
         new_hwm = REDIS_CLIENT.incr(hwm_key)
@@ -199,9 +201,10 @@ def handle_consume():
         return jsonify({"error": "Invalid parameters"}), 400
 
     try:
-        # Ensure topic exists
+        # Ensure topic exists - if not, create it
         if topic not in TOPICS:
-            return jsonify({"messages": [], "error": f"Topic '{topic}' does not exist"}), 404
+            logger.info(f"Topic '{topic}' does not exist, creating it...")
+            ensure_topic_exists(topic)
         
         if partition not in TOPICS[topic]:
             return jsonify({"messages": [], "error": f"Partition {partition} does not exist for topic '{topic}'"}), 404
