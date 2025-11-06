@@ -100,9 +100,11 @@ def handle_produce():
     if not data:
         return jsonify({"error": "No data provided"}), 400
 
+    logger.info(f"[{BROKER_ID}] Raw data received: {data}")
+    
     # Extract topic, key, and payload
-    topic = data.get("topic", "default")
-    key = data.get("key")
+    topic = data.get("topic") or "default"  # Handle empty strings
+    key = data.get("key") or None  # Handle empty strings
     payload = data.get("payload", data.get("data", {}))
     
     logger.info(f"[{BROKER_ID}] Received produce request for topic '{topic}' with key '{key}'")
