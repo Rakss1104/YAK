@@ -43,6 +43,7 @@
         h1 {
             font-size: 28px;
             background: linear-gradient(90deg, #6a64da, #9333ea);
+            background-clip: text;
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             font-weight: 700;
@@ -206,6 +207,7 @@
         .log-type.consume { background: rgba(59,130,246,0.15); color: #3b82f6; }
         .log-type.replicate { background: rgba(245,158,11,0.15); color: #f59e0b; }
         .log-type.election { background: rgba(168,85,247,0.15); color: #a855f7; }
+        .log-type.topic { background: rgba(236,72,153,0.15); color: #ec4899; }
 
         .empty-state {
             text-align: center;
@@ -273,10 +275,6 @@
             <div class="card">
                 <h2>Message Statistics</h2>
                 <div class="metric">
-                    <span class="metric-label">High Water Mark</span>
-                    <span class="metric-value" id="hwm">0</span>
-                </div>
-                <div class="metric">
                     <span class="metric-label">Messages Produced</span>
                     <span class="metric-value" id="msg-produced">0</span>
                 </div>
@@ -287,6 +285,10 @@
                 <div class="metric">
                     <span class="metric-label">Replications</span>
                     <span class="metric-value" id="replications">0</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">Total Topics</span>
+                    <span class="metric-value" id="total-topics">0</span>
                 </div>
             </div>
 
@@ -320,6 +322,13 @@
                     <span class="metric-label">Leadership Changes</span>
                     <span class="metric-value" id="leadership-changes">0</span>
                 </div>
+            </div>
+        </div>
+
+        <div class="message-log" style="margin-bottom: 30px;">
+            <h2>Topics & Partitions</h2>
+            <div id="topics-container">
+                <div class="empty-state">No topics created yet...</div>
             </div>
         </div>
 
@@ -404,7 +413,6 @@
                 const metricsResponse = await fetch('/metrics');
                 const metricsData = await metricsResponse.json();
 
-                document.getElementById('hwm').textContent = metricsData.high_water_mark || 0;
                 document.getElementById('follower-url').textContent = metricsData.follower_url || 'N/A';
                 document.getElementById('follower-health').textContent = metricsData.follower_health || 'Unknown';
                 document.getElementById('last-replication').textContent = metricsData.last_replication || 'Never';
@@ -414,6 +422,24 @@
                 document.getElementById('replications').textContent = metricsData.replications || 0;
                 document.getElementById('elections-won').textContent = metricsData.elections_won || 0;
                 document.getElementById('leadership-changes').textContent = metricsData.leadership_changes || 0;
+                
+                // Update topics
+                const topics = metricsData.topics || {};
+                const topicCount = Object.keys(topics).length;
+                document.getElementById('total-topics').textContent = topicCount;
+                
+                // Display topics
+                const topicsContainer = document.getElementById('topics-container');
+                if (topicCount === 0) {
+                    topicsContainer.innerHTML = '<div class="empty-state">No topics created yet...</div>';
+                } else {
+                    topicsContainer.innerHTML = Object.entries(topics).map(([name, data]) => `
+                        <div class="log-entry topic">
+                            <span class="log-type topic">TOPIC</span>
+                            <strong>${name}</strong> - ${data.partitions} partitions, ${data.messages} messages
+                        </div>
+                    `).join('');
+                }
 
                 if (metricsData.recent_activity && metricsData.recent_activity.length > 0) {
                     metricsData.recent_activity.forEach(activity => {

@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YAK Consumer Portal</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: radial-gradient(circle at top left, #0f0f10 0%, #050505 100%);
+            color: #e5e7eb;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        header {
+            background: rgba(60, 60, 60, 0.85);
+            backdrop-filter: blur(12px);
+            padding: 20px 30px;
+            border-radius: 15px;
+            box-shadow: 0 4px 25px rgba(0, 0, 0, 0.8);
+            margin-bottom: 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border: 2px solid rgba(147, 51, 234, 0.5);
+        }
+
+        h1 {
+            font-size: 28px;
+            background: linear-gradient(90deg, #a855f7, #ec4899);
+            background-clip: text;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            font-weight: 700;
+        }
+
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #ef4444;
+            box-shadow: 0 0 12px #ef4444;
+        }
+
+        .status-dot.connected {
+            background: #10b981;
+            box-shadow: 0 0 12px #10b981;
+        }
+
+        .card {
+            background: rgba(55, 55, 55, 0.85);
+            border-radius: 15px;
+            padding: 25px;
+            border: 2px solid rgba(168, 85, 247, 0.4);
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.8);
+            margin-bottom: 25px;
+        }
+
+        .card h2 {
+            font-size: 20px;
+            color: #a855f7;
+            margin-bottom: 20px;
+            border-bottom: 1px solid rgba(168, 85, 247, 0.3);
+            padding-bottom: 10px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #9ca3af;
+            font-weight: 500;
+        }
+
+        input[type="text"],
+        input[type="number"],
+        select {
+            width: 100%;
+            padding: 12px;
+            background: rgba(30, 30, 30, 0.8);
+            border: 1px solid rgba(168, 85, 247, 0.3);
+            border-radius: 8px;
+            color: #e5e7eb;
+            font-size: 14px;
+        }
+
+        input:focus,
+        select:focus {
+            outline: none;
+            border-color: #a855f7;
+            box-shadow: 0 0 10px rgba(168, 85, 247, 0.3);
+        }
+
+        button {
+            padding: 12px 24px;
+            background: linear-gradient(90deg, #a855f7, #9333ea);
+            border: none;
+            border-radius: 8px;
+            color: white;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 14px;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(168, 85, 247, 0.4);
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .btn-danger {
+            background: linear-gradient(90deg, #ef4444, #dc2626);
+            padding: 8px 16px;
+            font-size: 12px;
+        }
+
+        .subscription-list {
+            display: grid;
+            gap: 15px;
+        }
+
+        .subscription-item {
+            background: rgba(30, 30, 30, 0.8);
+            border-radius: 8px;
+            padding: 15px;
+            border-left: 4px solid #a855f7;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .subscription-info {
+            flex: 1;
+        }
+
+        .subscription-title {
+            font-weight: 600;
+            color: #e5e7eb;
+            margin-bottom: 5px;
+        }
+
+        .subscription-meta {
+            font-size: 12px;
+            color: #9ca3af;
+        }
+
+        .message-container {
+            background: rgba(30, 30, 30, 0.8);
+            border-radius: 8px;
+            padding: 15px;
+            max-height: 500px;
+            overflow-y: auto;
+        }
+
+        .message-item {
+            background: rgba(168, 85, 247, 0.1);
+            border-left: 3px solid #a855f7;
+            padding: 12px;
+            margin-bottom: 10px;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+        }
+
+        .message-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            color: #9ca3af;
+            font-size: 11px;
+        }
+
+        .message-payload {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 10px;
+            border-radius: 5px;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        .empty-state {
+            text-align: center;
+            color: #6b7280;
+            padding: 40px;
+            font-style: italic;
+        }
+
+        .grid-2 {
+            display: grid;
+            grid-template-columns: 1fr 2fr;
+            gap: 25px;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .badge-success {
+            background: rgba(16, 185, 129, 0.2);
+            color: #10b981;
+        }
+
+        .badge-info {
+            background: rgba(59, 130, 246, 0.2);
+            color: #3b82f6;
+        }
+
+        @media (max-width: 1024px) {
+            .grid-2 {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div>
+                <h1>📥 YAK Consumer Portal</h1>
+                <div style="color: #9ca3af; font-size: 14px; margin-top: 5px;">
+                    Subscribe to topics and receive messages
+                </div>
+            </div>
+            <div class="status-indicator">
+                <span class="status-dot" id="status-dot"></span>
+                <span id="leader-status">Checking...</span>
+            </div>
+        </header>
+
+        <div class="grid-2">
+            <div>
+                <div class="card">
+                    <h2>📡 Subscribe to Topic</h2>
+                    <div class="form-group">
+                        <label>Topic Name</label>
+                        <input type="text" id="topic-name" placeholder="e.g., server_metrics">
+                    </div>
+                    <div class="form-group">
+                        <label>Partition</label>
+                        <input type="number" id="partition" value="0" min="0" max="10">
+                    </div>
+                    <button onclick="subscribe()">Subscribe</button>
+                </div>
+
+                <div class="card">
+                    <h2>📋 Active Subscriptions</h2>
+                    <div id="subscriptions-list" class="subscription-list">
+                        <div class="empty-state">No active subscriptions</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>💬 Messages</h2>
+                <div id="messages-container" class="message-container">
+                    <div class="empty-state">Subscribe to a topic to see messages</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let subscriptions = [];
+        let selectedSubscription = null;
+        let messagePollingInterval = null;
+
+        async function checkLeader() {
+            try {
+                const response = await fetch('/api/leader');
+                const data = await response.json();
+                
+                if (data.leader_url) {
+                    document.getElementById('status-dot').classList.add('connected');
+                    document.getElementById('leader-status').textContent = `Connected to ${data.leader_url}`;
+                } else {
+                    document.getElementById('status-dot').classList.remove('connected');
+                    document.getElementById('leader-status').textContent = 'No leader available';
+                }
+            } catch (error) {
+                document.getElementById('status-dot').classList.remove('connected');
+                document.getElementById('leader-status').textContent = 'Connection error';
+            }
+        }
+
+        async function subscribe() {
+            const topic = document.getElementById('topic-name').value;
+            const partition = parseInt(document.getElementById('partition').value);
+
+            if (!topic) {
+                alert('Please enter a topic name');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/subscribe', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ topic, partition })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    document.getElementById('topic-name').value = '';
+                    loadSubscriptions();
+                } else {
+                    alert(`Failed to subscribe: ${data.error}`);
+                }
+            } catch (error) {
+                alert(`Error: ${error.message}`);
+            }
+        }
+
+        async function loadSubscriptions() {
+            try {
+                const response = await fetch('/api/subscriptions');
+                const data = await response.json();
+                
+                subscriptions = data.subscriptions || [];
+                renderSubscriptions();
+            } catch (error) {
+                console.error('Failed to load subscriptions:', error);
+            }
+        }
+
+        function renderSubscriptions() {
+            const container = document.getElementById('subscriptions-list');
+            
+            if (subscriptions.length === 0) {
+                container.innerHTML = '<div class="empty-state">No active subscriptions</div>';
+                return;
+            }
+
+            container.innerHTML = subscriptions.map(sub => `
+                <div class="subscription-item" onclick="selectSubscription('${sub.id}')">
+                    <div class="subscription-info">
+                        <div class="subscription-title">
+                            ${sub.topic}:p${sub.partition}
+                            <span class="badge badge-success">${sub.status}</span>
+                        </div>
+                        <div class="subscription-meta">
+                            Offset: ${sub.offset} | Messages: ${sub.message_count}
+                        </div>
+                    </div>
+                    <button class="btn-danger" onclick="event.stopPropagation(); unsubscribe('${sub.id}')">
+                        Unsubscribe
+                    </button>
+                </div>
+            `).join('');
+        }
+
+        function selectSubscription(subId) {
+            selectedSubscription = subId;
+            loadMessages(subId);
+            
+            // Start polling for new messages
+            if (messagePollingInterval) {
+                clearInterval(messagePollingInterval);
+            }
+            messagePollingInterval = setInterval(() => loadMessages(subId), 2000);
+        }
+
+        async function loadMessages(subId) {
+            try {
+                const response = await fetch(`/api/messages/${subId}`);
+                const data = await response.json();
+                
+                if (response.ok) {
+                    renderMessages(data);
+                }
+            } catch (error) {
+                console.error('Failed to load messages:', error);
+            }
+        }
+
+        function renderMessages(data) {
+            const container = document.getElementById('messages-container');
+            
+            if (!data.messages || data.messages.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        Waiting for messages from ${data.topic}:p${data.partition}...
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = data.messages.slice().reverse().map(msg => {
+                const payload = JSON.stringify(msg.data.payload || msg.data, null, 2);
+                return `
+                    <div class="message-item">
+                        <div class="message-header">
+                            <span>Offset: ${msg.offset}</span>
+                            <span>Topic: ${msg.topic}:p${msg.partition}</span>
+                            <span>Key: ${msg.data.key || 'null'}</span>
+                        </div>
+                        <div class="message-payload">${payload}</div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        async function unsubscribe(subId) {
+            if (!confirm('Are you sure you want to unsubscribe?')) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/unsubscribe/${subId}`, {
+                    method: 'DELETE'
+                });
+
+                if (response.ok) {
+                    if (selectedSubscription === subId) {
+                        selectedSubscription = null;
+                        if (messagePollingInterval) {
+                            clearInterval(messagePollingInterval);
+                            messagePollingInterval = null;
+                        }
+                        document.getElementById('messages-container').innerHTML = 
+                            '<div class="empty-state">Subscribe to a topic to see messages</div>';
+                    }
+                    loadSubscriptions();
+                }
+            } catch (error) {
+                alert(`Error: ${error.message}`);
+            }
+        }
+
+        // Initialize
+        checkLeader();
+        loadSubscriptions();
+        setInterval(checkLeader, 5000);
+        setInterval(loadSubscriptions, 3000);
+    </script>
+</body>
+</html>

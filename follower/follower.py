@@ -7,10 +7,10 @@ import requests
 import json # <-- ADDED
 import os # <-- ADDED
 
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template
 
 # Initialize Flask app first
-app = Flask(__name__)
+app = Flask(__name__, template_folder='../broker/templates')
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -32,6 +32,51 @@ RENEW_INTERVAL_SECONDS = 5
 # Global state
 IS_LEADER = False
 LEASE_RENEWAL_THREAD = None
+
+# Topic and Partition Management
+TOPICS = {}  # {topic_name: {partition_id: log_file_path}}
+DEFAULT_PARTITIONS = 3  # Default number of partitions per topic
+
+# Metrics tracking
+METRICS = {
+    "messages_produced": 0,
+    "messages_consumed": 0,
+    "replications": 0,
+    "elections_won": 0,
+    "leadership_changes": 0,
+    "last_replication": None,
+    "recent_activity": [],
+    "topics": {}
+}
+
+def add_activity_log(log_type, message):
+    """Add an activity log entry."""
+    timestamp = time.strftime("%H:%M:%S")
+    METRICS["recent_activity"].insert(0, {
+        "type": log_type,
+        "message": message,
+        "timestamp": timestamp
+    })
+    if len(METRICS["recent_activity"]) > 50:
+        METRICS["recent_activity"].pop()
+
+def get_partition_for_key(key, num_partitions):
+    """Hash-based partition assignment."""
+    if key is None:
+        return 0
+    return hash(key) % num_partitions
+
+def ensure_topic_exists(topic_name, num_partitions=DEFAULT_PARTITIONS):
+    """Create topic with partitions if it doesn't exist."""
+    if topic_name not in TOPICS:
+        TOPICS[topic_name] = {}
+        for partition_id in range(num_partitions):
+            log_file = f"{BROKER_ID}_{topic_name}_p{partition_id}.log"
+            TOPICS[topic_name][partition_id] = log_file
+        METRICS["topics"][topic_name] = {"partitions": num_partitions, "messages": 0}
+        logger.info(f"[{BROKER_ID}] Created topic '{topic_name}' with {num_partitions} partitions")
+        add_activity_log("topic", f"Created topic '{topic_name}' with {num_partitions} partitions")
+    return TOPICS[topic_name]
 
 # Initialize Redis client
 try:
@@ -57,13 +102,32 @@ def handle_replicate():
     data = request.get_json()
     if not data:
         return jsonify({"error": "No data provided"}), 400
+    
+    # Extract topic and partition from message
+    topic = data.get("topic", "default")
+    partition = data.get("partition", 0)
         
     try:
-        # --- FIX: Write as proper JSON line ---
-        with open(LOG_FILE, "a") as f:
-            f.write(json.dumps(data) + "\n")
+        # Ensure topic exists
+        topic_partitions = ensure_topic_exists(topic)
+        
+        # Get the log file for this partition
+        if partition not in topic_partitions:
+            return jsonify({"error": f"Partition {partition} does not exist"}), 400
             
-        logger.info(f"[{BROKER_ID}] Successfully replicated data: {data}")
+        log_file = topic_partitions[partition]
+        
+        # Write to partition log
+        with open(log_file, "a") as f:
+            f.write(json.dumps(data) + "\n")
+        
+        # Update metrics
+        METRICS["replications"] += 1
+        METRICS["topics"][topic]["messages"] += 1
+        METRICS["last_replication"] = time.strftime("%H:%M:%S")
+        add_activity_log("replicate", f"Replicated message for topic '{topic}':p{partition}")
+            
+        logger.info(f"[{BROKER_ID}] Successfully replicated data to {topic}:p{partition}")
         return jsonify({"status": "ack"}), 200
         
     except Exception as e:
@@ -269,10 +333,53 @@ def health():
             "broker_id": BROKER_ID,
             "is_leader": IS_LEADER,
             "redis_connected": redis_ok,
-            "leader_from_redis": REDIS_CLIENT.get("leader_lease") or "none"
+            "leader": REDIS_CLIENT.get("leader_lease") or "none"
         })
     except Exception as e:
         return jsonify({"status": "unhealthy", "error": str(e)}), 500
+
+@app.route("/leader", methods=["GET"])
+def leader_dashboard():
+    """Serve the broker dashboard UI."""
+    return render_template("dashboard.html")
+
+@app.route("/topics", methods=["GET"])
+def list_topics():
+    """List all topics and their partitions."""
+    try:
+        topics_info = []
+        for topic_name, partitions in TOPICS.items():
+            topic_data = {
+                "name": topic_name,
+                "partitions": len(partitions),
+                "messages": METRICS["topics"].get(topic_name, {}).get("messages", 0)
+            }
+            topics_info.append(topic_data)
+        return jsonify({"topics": topics_info})
+    except Exception as e:
+        logger.error(f"Error listing topics: {e}")
+        return jsonify({"error": "Failed to list topics"}), 500
+
+@app.route("/metrics", methods=["GET"])
+def get_metrics():
+    """Return broker metrics for the dashboard."""
+    try:
+        return jsonify({
+            "messages_produced": METRICS["messages_produced"],
+            "messages_consumed": METRICS["messages_consumed"],
+            "replications": METRICS["replications"],
+            "elections_won": METRICS["elections_won"],
+            "leadership_changes": METRICS["leadership_changes"],
+            "follower_url": FOLLOWER_URL,
+            "follower_health": "N/A",
+            "last_replication": METRICS["last_replication"],
+            "lease_time_seconds": LEASE_TIME_SECONDS,
+            "recent_activity": METRICS["recent_activity"][:20],
+            "topics": METRICS["topics"]
+        })
+    except Exception as e:
+        logger.error(f"Error fetching metrics: {e}")
+        return jsonify({"error": "Failed to fetch metrics"}), 500
 
 def start_leader_monitoring():
     """

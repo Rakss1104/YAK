@@ -1,14 +1,16 @@
-# Kafka-like Distributed Message Broker
+# YAK - Yet Another Kafka
 
 A lightweight, distributed message broker implementation inspired by Apache Kafka, built with Python, Flask, and Redis.
 
 ## Features
 
+- **Topics & Partitions**: Automatic topic creation with configurable partitions
+- **Key-Based Routing**: Hash-based partition assignment for load distribution
 - **Leader Election**: Automatic leader election using Redis distributed locks
-- **Message Production**: Support for producing messages to topics
+- **Synchronous Replication**: Data replicated to follower before commit
 - **High Availability**: Automatic failover when the leader goes down
-- **Distributed**: Multiple broker instances can run simultaneously
-- **REST API**: Simple HTTP interface for producing messages and checking status
+- **Web UIs**: Modern web interfaces for producer, consumer, and broker monitoring
+- **REST API**: Simple HTTP interface for all operations
 
 ## Prerequisites
 
@@ -38,52 +40,83 @@ A lightweight, distributed message broker implementation inspired by Apache Kafk
    # or download Redis for Windows
    ```
 
-## Running the Broker
+## Quick Start
 
-### Starting a Single Broker
-
+### 1. Start Redis
 ```bash
-python broker.py
+redis-server
 ```
 
-### Starting Multiple Brokers
-
-Open multiple terminals and run:
-
+### 2. Start Broker (Terminal 1)
 ```bash
-# Terminal 1 (Leader)
+cd broker
 python broker.py
-
-# Terminal 2 (Follower)
-FLASK_RUN_PORT=5002 BROKER_ID=broker-2 python broker.py
-
-# Terminal 3 (Another Follower)
-FLASK_RUN_PORT=5003 BROKER_ID=broker-3 python broker.py
 ```
+Access dashboard: http://localhost:5001/leader
+
+### 3. Start Follower (Terminal 2)
+```bash
+cd follower
+python follower.py
+```
+Access dashboard: http://localhost:5002/leader
+
+### 4. Start Producer UI (Terminal 3)
+```bash
+cd producer
+python producer_server.py
+```
+Access UI: http://localhost:5003
+
+### 5. Start Consumer UI (Terminal 4)
+```bash
+cd consumer
+python consumer_server.py
+```
+Access UI: http://localhost:5004
+
+## Multi-Machine Deployment
+
+For deploying across different machines, see [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md)
+
+## Usage
+
+### Producer Portal (http://localhost:5003)
+
+1. **Send Single Message**: Enter topic, key, and JSON payload
+2. **Upload CSV File**: Batch send data from CSV files
+3. **View Statistics**: Track sent/failed messages
+
+### Consumer Portal (http://localhost:5004)
+
+1. **Subscribe to Topic**: Enter topic name and partition
+2. **View Messages**: Real-time message display
+3. **Multiple Subscriptions**: Subscribe to multiple topics simultaneously
+
+### Broker Dashboard (http://localhost:5001/leader or :5002/leader)
+
+- Monitor broker health and status
+- View topics and partitions
+- Track message statistics
+- See replication status
+- View activity logs
 
 ## API Endpoints
 
-### Produce a Message
+### Broker/Follower
 
 ```http
 POST /produce
-Content-Type: application/json
-
 {
-    "message": "Your message here",
-    "topic": "your-topic"
+    "topic": "server_metrics",
+    "key": "server_1",
+    "payload": {"cpu": 75, "memory": 80}
 }
-```
 
-### Get Current Leader
-
-```http
+GET /consume?topic=server_metrics&partition=0&offset=0
+GET /topics
+GET /metrics
 GET /metadata/leader
-```
-
-### Health Check
-
-```http
 GET /health
 ```
 
@@ -100,39 +133,52 @@ You can configure the broker using environment variables:
 
 ## How It Works
 
-1. **Leader Election**:
-   - Brokers attempt to acquire a distributed lock in Redis to become the leader
-   - The lock has a TTL (time-to-live) and must be periodically renewed
-   - If the leader fails to renew the lease, another broker can take over
+### Topics and Partitions
+- Topics are created automatically on first message
+- Each topic has 3 partitions by default (configurable)
+- Messages with the same key go to the same partition (hash-based routing)
+- Partitions enable parallel processing and load distribution
 
-2. **Message Production**:
-   - Only the leader can accept produce requests
-   - Followers will redirect to the current leader
-   - Messages are written to a local log file (in a real implementation, this would be a distributed log)
+### Leader Election
+- Brokers use Redis distributed locks for leader election
+- Leader lease must be renewed every 5 seconds
+- If leader fails, follower automatically becomes leader
+- Producers and consumers auto-discover new leader
 
-3. **High Availability**:
-   - If the leader fails, the lease will expire
-   - Other brokers will detect this and hold a new election
-   - The new leader will start accepting produce requests
+### Replication
+- Leader synchronously replicates to follower before commit
+- Follower maintains identical topic/partition structure
+- High Water Mark (HWM) tracks committed messages per partition
+- Consumers only see committed messages
 
-## Limitations
+### Message Flow
+1. Producer sends message with topic and key
+2. Leader determines partition based on key hash
+3. Leader writes to partition log file
+4. Leader replicates to follower
+5. Leader updates HWM in Redis
+6. Leader returns success to producer
+7. Consumer polls for messages from specific topic/partition
 
-This is a simplified implementation and has several limitations compared to a production-grade message broker:
+## Architecture Highlights
 
-- No message persistence (messages are stored in memory)
-- No consumer API implemented
-- No topic partitioning
-- No message replication
-- No authentication or authorization
+✅ **Implemented Features**:
+- Topic-based partitioning
+- Key-based routing
+- Leader election with automatic failover
+- Synchronous replication
+- Offset tracking per partition
+- Web UIs for all components
+- Real-time dashboards
 
-## Future Improvements
-
-- [ ] Implement consumer groups and offset tracking
-- [ ] Add support for topic partitioning
-- [ ] Implement message replication for fault tolerance
-- [ ] Add authentication and authorization
-- [ ] Support for message batching and compression
-- [ ] Add metrics and monitoring
+⚠️ **Production Considerations**:
+- Add authentication/authorization
+- Implement consumer groups
+- Add message compression
+- Use persistent storage (not just log files)
+- Add monitoring and alerting
+- Implement rate limiting
+- Add TLS/SSL support
 
 ## License
 

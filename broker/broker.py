@@ -6,6 +6,7 @@ import logging
 import socket
 import json # <-- ADDED for proper JSON handling
 import os # <-- ADDED to check if log file exists
+import uuid # <-- ADDED for message IDs
 
 from flask import Flask, request, jsonify, render_template
 
@@ -29,6 +30,10 @@ logger = logging.getLogger(__name__)
 IS_LEADER = False
 LEASE_RENEWAL_THREAD = None
 
+# Topic and Partition Management
+TOPICS = {}  # {topic_name: {partition_id: log_file_path}}
+DEFAULT_PARTITIONS = 3  # Default number of partitions per topic
+
 # Metrics tracking
 METRICS = {
     "messages_produced": 0,
@@ -37,7 +42,8 @@ METRICS = {
     "elections_won": 0,
     "leadership_changes": 0,
     "last_replication": None,
-    "recent_activity": []  # Store recent activity logs
+    "recent_activity": [],  # Store recent activity logs
+    "topics": {}  # {topic_name: {"partitions": count, "messages": count}}
 }
 
 def add_activity_log(log_type, message):
@@ -51,6 +57,24 @@ def add_activity_log(log_type, message):
     # Keep only last 50 entries
     if len(METRICS["recent_activity"]) > 50:
         METRICS["recent_activity"].pop()
+
+def get_partition_for_key(key, num_partitions):
+    """Hash-based partition assignment."""
+    if key is None:
+        return 0
+    return hash(key) % num_partitions
+
+def ensure_topic_exists(topic_name, num_partitions=DEFAULT_PARTITIONS):
+    """Create topic with partitions if it doesn't exist."""
+    if topic_name not in TOPICS:
+        TOPICS[topic_name] = {}
+        for partition_id in range(num_partitions):
+            log_file = f"{BROKER_ID}_{topic_name}_p{partition_id}.log"
+            TOPICS[topic_name][partition_id] = log_file
+        METRICS["topics"][topic_name] = {"partitions": num_partitions, "messages": 0}
+        logger.info(f"[{BROKER_ID}] Created topic '{topic_name}' with {num_partitions} partitions")
+        add_activity_log("topic", f"Created topic '{topic_name}' with {num_partitions} partitions")
+    return TOPICS[topic_name]
 
 # ---------------- REDIS INIT ----------------
 try:
@@ -70,46 +94,74 @@ def handle_produce():
         leader_id = REDIS_CLIENT.get("leader_lease")
         if not leader_id:
             return jsonify({"error": "No leader elected yet. Please try again."}), 503
-        # Return 400-level error, 307 is for redirection which isn't right
         return jsonify({"error": "Not the leader", "leader_id": leader_id}), 400 
 
     data = request.get_json()
     if not data:
         return jsonify({"error": "No data provided"}), 400
 
-    logger.info(f"[{BROKER_ID}] Received produce request: {data}")
+    # Extract topic, key, and payload
+    topic = data.get("topic", "default")
+    key = data.get("key")
+    payload = data.get("payload", data.get("data", {}))
+    
+    logger.info(f"[{BROKER_ID}] Received produce request for topic '{topic}' with key '{key}'")
     METRICS["messages_produced"] += 1
-    producer_id = data.get("producer_id", "unknown")
-    add_activity_log("produce", f"Message received from producer: {producer_id}")
+    add_activity_log("produce", f"Message received for topic '{topic}'")
 
     try:
-        # Step 1: Write locally (as a JSON line)
-        with open(LOG_FILE, "a") as f:
-            # f.write(f"{data}\n") # This is hard to read
-            f.write(json.dumps(data) + "\n") # This is much better
+        # Ensure topic exists
+        topic_partitions = ensure_topic_exists(topic)
+        
+        # Determine partition
+        partition_id = get_partition_for_key(key, len(topic_partitions))
+        log_file = topic_partitions[partition_id]
+        
+        # Prepare message with metadata
+        message = {
+            "msg_id": data.get("msg_id", str(uuid.uuid4())),
+            "topic": topic,
+            "partition": partition_id,
+            "key": key,
+            "payload": payload,
+            "timestamp": time.time()
+        }
+        
+        # Step 1: Write locally to partition log
+        with open(log_file, "a") as f:
+            f.write(json.dumps(message) + "\n")
+        
+        # Update topic metrics
+        METRICS["topics"][topic]["messages"] += 1
 
         # Step 2: Replicate to follower
         if FOLLOWER_URL:
             try:
                 logger.info(f"[{BROKER_ID}] Replicating to follower at {FOLLOWER_URL}...")
-                rep = requests.post(f"{FOLLOWER_URL}/internal/replicate", json=data, timeout=3)
+                rep = requests.post(f"{FOLLOWER_URL}/internal/replicate", json=message, timeout=3)
                 if rep.status_code != 200:
                     logger.error(f"[{BROKER_ID}] Follower replication failed ({rep.status_code})")
                     return jsonify({"error": "Replication failed"}), 500
                 logger.info(f"[{BROKER_ID}] Follower acknowledged replication.")
                 METRICS["replications"] += 1
                 METRICS["last_replication"] = time.strftime("%H:%M:%S")
-                add_activity_log("replicate", f"Data replicated to follower at {FOLLOWER_URL}")
+                add_activity_log("replicate", f"Data replicated to follower for topic '{topic}'")
             except requests.exceptions.RequestException as e:
                 logger.error(f"[{BROKER_ID}] Failed to reach follower: {e}")
                 return jsonify({"error": "Follower unreachable"}), 500
 
-        # Step 3: Commit (update HWM)
-        # HWM represents the offset of the last *committed* message
-        new_hwm = REDIS_CLIENT.incr("high_water_mark")
-        logger.info(f"[{BROKER_ID}] Commit success. New HWM: {new_hwm}")
+        # Step 3: Commit (update HWM for this topic-partition)
+        hwm_key = f"hwm:{topic}:{partition_id}"
+        new_hwm = REDIS_CLIENT.incr(hwm_key)
+        logger.info(f"[{BROKER_ID}] Commit success. Topic: {topic}, Partition: {partition_id}, HWM: {new_hwm}")
 
-        return jsonify({"status": "success", "offset": new_hwm, "leader_id": BROKER_ID}), 200
+        return jsonify({
+            "status": "success", 
+            "offset": new_hwm, 
+            "topic": topic,
+            "partition": partition_id,
+            "leader_id": BROKER_ID
+        }), 200
 
     except Exception as e:
         logger.error(f"[{BROKER_ID}] Failed to process produce request: {e}")
@@ -137,25 +189,37 @@ def handle_consume():
         return jsonify({"error": "Not the leader"}), 400
 
     try:
-        # 1. Get offset from consumer
+        # Get parameters from consumer
+        topic = request.args.get('topic', 'default')
+        partition = int(request.args.get('partition', 0))
         offset = int(request.args.get('offset', 0))
     except ValueError:
-        return jsonify({"error": "Invalid offset"}), 400
+        return jsonify({"error": "Invalid parameters"}), 400
 
     try:
-        # 2. Get the High Water Mark (HWM)
-        hwm_str = REDIS_CLIENT.get("high_water_mark")
+        # Ensure topic exists
+        if topic not in TOPICS:
+            return jsonify({"messages": [], "error": f"Topic '{topic}' does not exist"}), 404
+        
+        if partition not in TOPICS[topic]:
+            return jsonify({"messages": [], "error": f"Partition {partition} does not exist for topic '{topic}'"}), 404
+        
+        log_file = TOPICS[topic][partition]
+        
+        # Get the High Water Mark (HWM) for this topic-partition
+        hwm_key = f"hwm:{topic}:{partition}"
+        hwm_str = REDIS_CLIENT.get(hwm_key)
         high_water_mark = int(hwm_str) if hwm_str else 0
         
         messages = []
         current_offset = 0 # Log files are 0-indexed
 
-        if not os.path.exists(LOG_FILE):
-            logger.info("No log file found, returning empty list.")
+        if not os.path.exists(log_file):
+            logger.info(f"No log file found for {topic}:p{partition}, returning empty list.")
             return jsonify({"messages": []})
         
-        # 3. Read the log file line by line
-        with open(LOG_FILE, "r") as f:
+        # Read the log file line by line
+        with open(log_file, "r") as f:
             for line in f:
                 # Our HWM is 1-based, so msg_offset is current_offset + 1
                 msg_offset = current_offset + 1
@@ -170,6 +234,8 @@ def handle_consume():
                         msg_data = json.loads(line.strip())
                         messages.append({
                             "offset": msg_offset,
+                            "topic": topic,
+                            "partition": partition,
                             "data": msg_data
                         })
                     except json.JSONDecodeError:
@@ -177,11 +243,11 @@ def handle_consume():
 
                 current_offset += 1
         
-        # 4. Return the messages
+        # Return the messages
         METRICS["messages_consumed"] += len(messages)
         if messages:
-            add_activity_log("consume", f"Served {len(messages)} message(s) to consumer from offset {offset}")
-        return jsonify({"messages": messages})
+            add_activity_log("consume", f"Served {len(messages)} message(s) from {topic}:p{partition} at offset {offset}")
+        return jsonify({"messages": messages, "high_water_mark": high_water_mark})
 
     except Exception as e:
         logger.error(f"Error in /consume: {e}")
@@ -209,13 +275,28 @@ def leader_dashboard():
     return render_template("dashboard.html")
 
 
+@app.route("/topics", methods=["GET"])
+def list_topics():
+    """List all topics and their partitions."""
+    try:
+        topics_info = []
+        for topic_name, partitions in TOPICS.items():
+            topic_data = {
+                "name": topic_name,
+                "partitions": len(partitions),
+                "messages": METRICS["topics"].get(topic_name, {}).get("messages", 0)
+            }
+            topics_info.append(topic_data)
+        return jsonify({"topics": topics_info})
+    except Exception as e:
+        logger.error(f"Error listing topics: {e}")
+        return jsonify({"error": "Failed to list topics"}), 500
+
+
 @app.route("/metrics", methods=["GET"])
 def get_metrics():
     """Return broker metrics for the dashboard."""
     try:
-        hwm_str = REDIS_CLIENT.get("high_water_mark")
-        high_water_mark = int(hwm_str) if hwm_str else 0
-        
         # Check follower health
         follower_health = "Unknown"
         if FOLLOWER_URL:
@@ -229,7 +310,6 @@ def get_metrics():
                 follower_health = "❌ Unreachable"
         
         return jsonify({
-            "high_water_mark": high_water_mark,
             "messages_produced": METRICS["messages_produced"],
             "messages_consumed": METRICS["messages_consumed"],
             "replications": METRICS["replications"],
@@ -239,7 +319,8 @@ def get_metrics():
             "follower_health": follower_health,
             "last_replication": METRICS["last_replication"],
             "lease_time_seconds": LEASE_TIME_SECONDS,
-            "recent_activity": METRICS["recent_activity"][:20]  # Last 20 activities
+            "recent_activity": METRICS["recent_activity"][:20],  # Last 20 activities
+            "topics": METRICS["topics"]
         })
     except Exception as e:
         logger.error(f"Error fetching metrics: {e}")
