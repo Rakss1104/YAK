@@ -20,7 +20,6 @@ LEASE_TIME_SECONDS = 10
 RENEW_INTERVAL_SECONDS = 5
 PORT = 5002
 
-# <-- NEW BLOCK: How long to remember a msg_id to prevent duplicates (in seconds)
 # 1 hour = 3600 seconds. Adjust as needed.
 IDEMPOTENCE_EXPIRY_SECONDS = 3600
 
@@ -157,7 +156,6 @@ def handle_produce():
     
     logger.info(f"[{BROKER_ID} (Promoted)] Received produce for topic '{topic}' (MsgID: {msg_id})")
 
-    # <-- NEW BLOCK: Idempotence Check using Redis
     # We create a unique key for this message ID.
     # 'nx=True' means "set only if it does not exist"
     # 'ex=...' means "expire after N seconds"
@@ -220,8 +218,6 @@ def handle_produce():
         REDIS_CLIENT.delete(idempotence_key)
         return jsonify({"error": "Internal error"}), 500
 
-# --- ALL OTHER ENDPOINTS ARE IDENTICAL TO LEADER ---
-# (No changes to the functions below)
 
 @app.route("/metadata/leader", methods=["GET"])
 def get_leader():
@@ -403,7 +399,6 @@ def watch_leader_status():
             logger.error(f"[{BROKER_ID}] Exception in leader watch thread: {e}")
             time.sleep(3)
 
-# ---------------- MAIN (MODIFIED FOR FOLLOWER) ----------------
 def main():
     threading.Thread(target=watch_leader_status, daemon=True).start()
     
