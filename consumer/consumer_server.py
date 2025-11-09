@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 # Configuration
 BROKER_NODES = [
-    'http://localhost:5001',
+    'http://192.168.191.203:5001',
     'http://192.168.191.242:5002'
 ]
 
