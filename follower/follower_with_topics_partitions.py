@@ -12,14 +12,17 @@ from flask import Flask, request, jsonify, render_template
 app = Flask(__name__)
 
 # ---------------- CONFIG (MODIFIED FOR FOLLOWER) ----------------
-FOLLOWER_URL = None  # <-- MODIFIED: This broker has no follower
-BROKER_ID = f"follower-{socket.gethostname()}" # <-- MODIFIED: ID
-# This MUST be your ZeroTier IP, since you are hosting Redis
-REDIS_HOST = "192.168.191.242" # <-- Your IP
+FOLLOWER_URL = None
+BROKER_ID = f"follower-{socket.gethostname()}"
+REDIS_HOST = "192.168.191.242" 
 REDIS_PORT = 6379
 LEASE_TIME_SECONDS = 10
 RENEW_INTERVAL_SECONDS = 5
-PORT = 5002 # <-- MODIFIED: Run on port 5002
+PORT = 5002
+
+# <-- NEW BLOCK: How long to remember a msg_id to prevent duplicates (in seconds)
+# 1 hour = 3600 seconds. Adjust as needed.
+IDEMPOTENCE_EXPIRY_SECONDS = 3600
 
 # ---------------- LOGGING ----------------
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -28,11 +31,11 @@ logger = logging.getLogger(__name__)
 # ---------------- GLOBAL STATE ----------------
 IS_LEADER = False
 LEASE_RENEWAL_THREAD = None
-TOPICS = {}  # {topic_name: {partition_id: log_file_path}}
+TOPICS = {}
 DEFAULT_PARTITIONS = 3
 METRICS = {
     "messages_produced": 0, "messages_consumed": 0,
-    "replications_received": 0, # <-- MODIFIED: Track received
+    "replications_received": 0, 
     "elections_won": 0, "leadership_changes": 0, "last_replication": None,
     "recent_activity": [], "topics": {}
 }
@@ -54,14 +57,12 @@ def ensure_topic_exists(topic_name, num_partitions=DEFAULT_PARTITIONS):
     if topic_name not in TOPICS:
         TOPICS[topic_name] = {}
         for partition_id in range(num_partitions):
-            # Use the follower's BROKER_ID for its log files
             log_file = f"{BROKER_ID}_{topic_name}_p{partition_id}.log"
             TOPICS[topic_name][partition_id] = log_file
         
-        # Only create metrics if they don't exist
         if topic_name not in METRICS["topics"]:
-             METRICS["topics"][topic_name] = {"partitions": num_partitions, "messages": 0}
-             
+            METRICS["topics"][topic_name] = {"partitions": num_partitions, "messages": 0}
+            
         logger.info(f"[{BROKER_ID}] Ensured topic '{topic_name}' with {num_partitions} partitions")
         add_activity_log("topic", f"Ensured topic '{topic_name}' with {num_partitions} partitions")
     return TOPICS[topic_name]
@@ -77,12 +78,14 @@ except redis.ConnectionError as e:
 
 # ---------------- ROUTES ----------------
 
-# --- THIS IS YOUR PRIMARY JOB ---
 @app.route("/internal/replicate", methods=["POST"])
 def handle_replicate():
     """
     FOLLOWER-ONLY: Receives a message from the leader and writes
     it to the correct partition log.
+    
+    NOTE: For simplicity, we trust the leader and don't re-check
+    idempotence here. The leader is responsible for that.
     """
     if IS_LEADER:
         logger.warning(f"[{BROKER_ID}] Received replication request while leader. Ignoring.")
@@ -104,9 +107,9 @@ def handle_replicate():
         log_file = topic_partitions.get(partition_id)
         
         if not log_file:
-             logger.error(f"[{BROKER_ID}] Leader tried to replicate to non-existent partition {partition_id}")
-             return jsonify({"error": "Invalid partition"}), 400
-             
+            logger.error(f"[{BROKER_ID}] Leader tried to replicate to non-existent partition {partition_id}")
+            return jsonify({"error": "Invalid partition"}), 400
+            
         # Write to follower's local partition log
         with open(log_file, "a") as f:
             f.write(json.dumps(data) + "\n")
@@ -128,7 +131,7 @@ def handle_produce():
     """
     DUAL-MODE:
     1. As FOLLOWER: Rejects the request.
-    2. As PROMOTED LEADER: Acts as the new leader.
+    2. As PROMOTED LEADER: Acts as the new leader and CHECKS FOR DUPLICATES.
     """
     global IS_LEADER
     if not IS_LEADER:
@@ -137,18 +140,46 @@ def handle_produce():
             return jsonify({"error": "No leader elected yet. Please try again."}), 503
         return jsonify({"error": "Not the leader", "leader_id": leader_id}), 400 
 
-    # --- PROMOTED LEADER LOGIC ---
-    # This logic is IDENTICAL to the leader's, so failover is seamless.
+    # --- PROMOTED LEADER LOGIC (WITH IDEMPOTENCE) ---
     data = request.get_json()
     if not data:
         return jsonify({"error": "No data provided"}), 400
+
+    # <-- CHANGED: We now require msg_id
+    msg_id = data.get("msg_id")
+    if not msg_id:
+        return jsonify({"error": "msg_id is required"}), 400
 
     data_payload = data.get('data', {})
     topic = data_payload.get('topic') or data.get('topic') or 'default'
     key = data_payload.get('key') or data.get('key')
     payload = data_payload.get('payload', data_payload)
     
-    logger.info(f"[{BROKER_ID} (Promoted)] Received produce for topic '{topic}'")
+    logger.info(f"[{BROKER_ID} (Promoted)] Received produce for topic '{topic}' (MsgID: {msg_id})")
+
+    # <-- NEW BLOCK: Idempotence Check using Redis
+    # We create a unique key for this message ID.
+    # 'nx=True' means "set only if it does not exist"
+    # 'ex=...' means "expire after N seconds"
+    idempotence_key = f"yak_msg_lock:{msg_id}"
+    is_new_message = REDIS_CLIENT.set(
+        idempotence_key, 
+        "processed", 
+        ex=IDEMPOTENCE_EXPIRY_SECONDS, 
+        nx=True
+    )
+
+    if not is_new_message:
+        # This message ID has been seen before.
+        logger.warning(f"[{BROKER_ID} (Promoted)] Duplicate message detected (MsgID: {msg_id}). Ignoring.")
+        # Return 200 OK so the producer thinks it succeeded
+        return jsonify({
+            "status": "success_duplicate", 
+            "msg_id": msg_id,
+            "leader_id": BROKER_ID
+        }), 200
+    # --- End of Idempotence Check ---
+
     METRICS["messages_produced"] += 1
     add_activity_log("produce", f"Message received for topic '{topic}'")
 
@@ -158,7 +189,7 @@ def handle_produce():
         log_file = topic_partitions[partition_id]
         
         message = {
-            "msg_id": data.get("msg_id", str(uuid.uuid4())),
+            "msg_id": msg_id, # <-- CHANGED: Use the provided msg_id
             "topic": topic, "partition": partition_id, "key": key,
             "payload": payload, "timestamp": time.time()
         }
@@ -178,17 +209,19 @@ def handle_produce():
         logger.info(f"[{BROKER_ID} (Promoted)] Commit. {topic}:p{partition_id}, HWM: {new_hwm}")
 
         return jsonify({
-            "status": "success", "offset": new_hwm, "topic": topic,
+            "status": "success_new", # <-- CHANGED: Be explicit this was a new message
+            "offset": new_hwm, "topic": topic,
             "partition": partition_id, "leader_id": BROKER_ID
         }), 200
 
     except Exception as e:
         logger.error(f"[{BROKER_ID} (Promoted)] Failed to process produce: {e}")
+        # <-- NEW BLOCK: If we fail, we should clear the idempotence key so it can be retried
+        REDIS_CLIENT.delete(idempotence_key)
         return jsonify({"error": "Internal error"}), 500
 
 # --- ALL OTHER ENDPOINTS ARE IDENTICAL TO LEADER ---
-# This ensures this script can run the dashboard and
-# respond to consumers correctly after a failover.
+# (No changes to the functions below)
 
 @app.route("/metadata/leader", methods=["GET"])
 def get_leader():
@@ -235,7 +268,9 @@ def handle_consume():
                 msg_offset = current_offset + 1
                 if msg_offset > high_water_mark:
                     break 
-                if msg_offset > offset:
+                
+                # <-- THIS IS THE FIX FROM THE FIRST PROBLEM
+                if msg_offset >= offset: 
                     try:
                         msg_data = json.loads(line.strip())
                         messages.append({
@@ -370,8 +405,6 @@ def watch_leader_status():
 
 # ---------------- MAIN (MODIFIED FOR FOLLOWER) ----------------
 def main():
-    # A follower DOES NOT try to become leader on startup.
-    # It just starts monitoring.
     threading.Thread(target=watch_leader_status, daemon=True).start()
     
     logger.info(f"[{BROKER_ID}] Follower broker starting on port {PORT}")
