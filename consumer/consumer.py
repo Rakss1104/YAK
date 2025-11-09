@@ -10,13 +10,13 @@ from collections import defaultdict
 class DeduplicatedConsumer:
     """
     Multi-topic YAK consumer that:
-    ✅ Joins all topics by (server_id, ts)
-    ✅ Keeps only one row per server per timestamp
-    ✅ Writes to CSV once per completed record
-    ✅ Persists offsets and completion state to handle restarts
-    ✅ Dynamically fails over to new leader
+    \E2\9C\85 Joins all topics by (server_id, ts)
+    \E2\9C\85 Keeps only one row per server per timestamp
+    \E2\9C\85 Writes to CSV once per completed record
+    \E2\9C\85 Persists offsets and completion state to handle restarts
+    \E2\9C\85 Dynamically fails over to new leader
     """
-#this is the consumer class
+
     def __init__(self, broker_list, consumer_group="default_group"):
         self.brokers = broker_list
         self.consumer_group = consumer_group

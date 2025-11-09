@@ -1,0 +1,1222 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Message Broker Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        @keyframes gradientShift {
+            0% {
+                background-position: 0% 50%;
+            }
+
+            50% {
+                background-position: 100% 50%;
+            }
+
+            100% {
+                background-position: 0% 50%;
+            }
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                transform: scale(1);
+            }
+
+            50% {
+                transform: scale(1.05);
+            }
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateX(-20px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(-45deg, #667eea, #764ba2, #f093fb, #4facfe);
+            background-size: 400% 400%;
+            animation: gradientShift 15s ease infinite;
+            min-height: 100vh;
+            padding: 20px;
+            color: #333;
+            position: relative;
+            overflow-x: hidden;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background:
+                radial-gradient(circle at 20% 80%, rgba(255, 255, 255, 0.1) 0%, transparent 50%),
+                radial-gradient(circle at 80% 20%, rgba(255, 255, 255, 0.1) 0%, transparent 50%);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+            position: relative;
+            z-index: 1;
+        }
+
+        .header {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(20px);
+            padding: 30px 40px;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
+            margin-bottom: 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            animation: fadeIn 0.6s ease-out;
+        }
+
+        .header-left {
+            flex: 1;
+        }
+
+        .header h1 {
+            font-size: 32px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            font-weight: 800;
+            margin-bottom: 10px;
+        }
+
+        .header h1::before {
+            content: '📊';
+            font-size: 36px;
+            filter: drop-shadow(0 4px 8px rgba(102, 126, 234, 0.3));
+        }
+
+        .broker-info {
+            display: flex;
+            gap: 20px;
+            margin-top: 12px;
+            flex-wrap: wrap;
+        }
+
+        .info-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            color: #6b7280;
+            background: rgba(102, 126, 234, 0.08);
+            padding: 6px 14px;
+            border-radius: 8px;
+        }
+
+        .info-item strong {
+            color: #374151;
+            font-weight: 700;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 8px 18px;
+            border-radius: 25px;
+            font-size: 13px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        .status-leader {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: white;
+        }
+
+        .status-follower {
+            background: linear-gradient(135deg, #6b7280 0%, #4b5563 100%);
+            color: white;
+        }
+
+        .status-unknown {
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+            color: white;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .card {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(20px);
+            padding: 30px;
+            border-radius: 20px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            transition: all 0.3s ease;
+            animation: fadeIn 0.6s ease-out backwards;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 20px 60px rgba(102, 126, 234, 0.2);
+        }
+
+        .card:nth-child(1) {
+            animation-delay: 0.1s;
+        }
+
+        .card:nth-child(2) {
+            animation-delay: 0.2s;
+        }
+
+        .card:nth-child(3) {
+            animation-delay: 0.3s;
+        }
+
+        .card:nth-child(4) {
+            animation-delay: 0.4s;
+        }
+
+        .card:nth-child(5) {
+            animation-delay: 0.5s;
+        }
+
+        .card:nth-child(6) {
+            animation-delay: 0.6s;
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 15px;
+        }
+
+        .card h3 {
+            font-size: 12px;
+            color: #9ca3af;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            font-weight: 700;
+        }
+
+        .card-icon {
+            font-size: 24px;
+            opacity: 0.6;
+        }
+
+        .card .value {
+            font-size: 48px;
+            font-weight: 900;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 10px;
+            line-height: 1;
+        }
+
+        .card .label {
+            font-size: 14px;
+            color: #6b7280;
+            font-weight: 500;
+            margin-bottom: 15px;
+        }
+
+        .card-details {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid rgba(0, 0, 0, 0.05);
+        }
+
+        .detail-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 0;
+            font-size: 13px;
+        }
+
+        .detail-row .detail-label {
+            color: #9ca3af;
+            font-weight: 500;
+        }
+
+        .detail-row .detail-value {
+            color: #374151;
+            font-weight: 700;
+        }
+
+        .section {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(20px);
+            padding: 35px;
+            border-radius: 20px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+            margin-bottom: 30px;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            animation: fadeIn 0.8s ease-out;
+        }
+
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 25px;
+        }
+
+        .section h2 {
+            font-size: 24px;
+            color: #1f2937;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-weight: 800;
+        }
+
+        .section h2::before {
+            content: attr(data-icon);
+            font-size: 28px;
+            filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.1));
+        }
+
+        .section-subtitle {
+            font-size: 14px;
+            color: #6b7280;
+            margin-top: 5px;
+        }
+
+        .two-column {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 30px;
+        }
+
+        @media (max-width: 1200px) {
+            .two-column {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th,
+        td {
+            text-align: left;
+            padding: 16px;
+            border-bottom: 1px solid rgba(229, 231, 235, 0.5);
+        }
+
+        th {
+            background: linear-gradient(135deg, rgba(102, 126, 234, 0.08) 0%, rgba(118, 75, 162, 0.08) 100%);
+            font-weight: 700;
+            color: #1f2937;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1.2px;
+        }
+
+        tbody tr {
+            transition: all 0.2s ease;
+        }
+
+        tbody tr:hover {
+            background: rgba(102, 126, 234, 0.03);
+            transform: scale(1.01);
+        }
+
+        td {
+            color: #4b5563;
+            font-weight: 500;
+        }
+
+        td strong {
+            color: #1f2937;
+            font-weight: 700;
+        }
+
+        .activity-log {
+            max-height: 500px;
+            overflow-y: auto;
+        }
+
+        .activity-item {
+            padding: 16px 20px;
+            border-left: 4px solid #667eea;
+            margin-bottom: 12px;
+            background: linear-gradient(135deg, rgba(102, 126, 234, 0.05) 0%, rgba(118, 75, 162, 0.05) 100%);
+            border-radius: 8px;
+            transition: all 0.3s ease;
+            animation: slideIn 0.4s ease-out;
+        }
+
+        .activity-item:hover {
+            transform: translateX(5px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+        }
+
+        .activity-item.produce {
+            border-left-color: #10b981;
+            background: linear-gradient(135deg, rgba(16, 185, 129, 0.05) 0%, rgba(5, 150, 105, 0.05) 100%);
+        }
+
+        .activity-item.consume {
+            border-left-color: #3b82f6;
+            background: linear-gradient(135deg, rgba(59, 130, 246, 0.05) 0%, rgba(37, 99, 235, 0.05) 100%);
+        }
+
+        .activity-item.replicate {
+            border-left-color: #8b5cf6;
+            background: linear-gradient(135deg, rgba(139, 92, 246, 0.05) 0%, rgba(124, 58, 237, 0.05) 100%);
+        }
+
+        .activity-item.election {
+            border-left-color: #f59e0b;
+            background: linear-gradient(135deg, rgba(245, 158, 11, 0.05) 0%, rgba(217, 119, 6, 0.05) 100%);
+        }
+
+        .activity-item.topic {
+            border-left-color: #06b6d4;
+            background: linear-gradient(135deg, rgba(6, 182, 212, 0.05) 0%, rgba(8, 145, 178, 0.05) 100%);
+        }
+
+        .activity-time {
+            font-size: 11px;
+            color: #9ca3af;
+            margin-bottom: 4px;
+            font-weight: 600;
+        }
+
+        .activity-message {
+            font-size: 14px;
+            color: #374151;
+            font-weight: 500;
+        }
+
+        .refresh-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 28px;
+            border-radius: 12px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 700;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .refresh-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4);
+        }
+
+        .refresh-btn:active {
+            transform: translateY(0);
+        }
+
+        .auto-refresh {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 14px;
+            color: #6b7280;
+            font-weight: 600;
+        }
+
+        .toggle {
+            position: relative;
+            width: 50px;
+            height: 26px;
+        }
+
+        .toggle input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #cbd5e1;
+            transition: .3s;
+            border-radius: 26px;
+        }
+
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 18px;
+            width: 18px;
+            left: 4px;
+            bottom: 4px;
+            background-color: white;
+            transition: .3s;
+            border-radius: 50%;
+        }
+
+        input:checked+.slider {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+
+        input:checked+.slider:before {
+            transform: translateX(24px);
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 40px;
+            color: #9ca3af;
+        }
+
+        .empty-state-icon {
+            font-size: 48px;
+            margin-bottom: 15px;
+            opacity: 0.5;
+        }
+
+        .empty-state-text {
+            font-size: 16px;
+            font-weight: 500;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #667eea;
+            font-size: 16px;
+            font-weight: 600;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+
+        .stat-box {
+            background: rgba(102, 126, 234, 0.05);
+            padding: 15px;
+            border-radius: 12px;
+            border: 1px solid rgba(102, 126, 234, 0.1);
+        }
+
+        .stat-box-label {
+            font-size: 11px;
+            color: #9ca3af;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 8px;
+            font-weight: 700;
+        }
+
+        .stat-box-value {
+            font-size: 24px;
+            font-weight: 800;
+            color: #667eea;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .badge-success {
+            background: #d1fae5;
+            color: #065f46;
+        }
+
+        .badge-warning {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        .badge-info {
+            background: #dbeafe;
+            color: #1e40af;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: rgba(0, 0, 0, 0.05);
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 8px;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            transition: width 0.3s ease;
+        }
+
+        .mini-card {
+            background: rgba(255, 255, 255, 0.5);
+            padding: 12px 16px;
+            border-radius: 10px;
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border: 1px solid rgba(0, 0, 0, 0.05);
+        }
+
+        .mini-card-label {
+            font-size: 13px;
+            color: #6b7280;
+            font-weight: 600;
+        }
+
+        .mini-card-value {
+            font-size: 16px;
+            color: #1f2937;
+            font-weight: 800;
+        }
+
+        .redis-status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        .status-dot.connected {
+            background: #10b981;
+            box-shadow: 0 0 10px rgba(16, 185, 129, 0.5);
+        }
+
+        .status-dot.disconnected {
+            background: #ef4444;
+            box-shadow: 0 0 10px rgba(239, 68, 68, 0.5);
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="header-left">
+                <h1>
+                    Message Broker Dashboard
+                    <span id="statusBadge" class="status-badge status-unknown">Loading...</span>
+                </h1>
+                <div class="broker-info">
+                    <div class="info-item">
+                        <strong>Broker ID:</strong>
+                        <span id="brokerId">Loading...</span>
+                    </div>
+                    <div class="info-item redis-status">
+                        <strong>Redis:</strong>
+                        <span class="status-dot" id="redisStatusDot"></span>
+                        <span id="redisStatus">Checking...</span>
+                    </div>
+                    <div class="info-item">
+                        <strong>Current Leader:</strong>
+                        <span id="currentLeader">Unknown</span>
+                    </div>
+                    <div class="info-item">
+                        <strong>Lease Time:</strong>
+                        <span id="leaseTime">-</span>s
+                    </div>
+                </div>
+            </div>
+            <div style="display: flex; gap: 15px; align-items: center;">
+                <div class="auto-refresh">
+                    <label class="toggle">
+                        <input type="checkbox" id="autoRefreshToggle" checked>
+                        <span class="slider"></span>
+                    </label>
+                    Auto-refresh (5s)
+                </div>
+                <button class="refresh-btn" onclick="fetchAllData()">🔄 Refresh Now</button>
+            </div>
+        </div>
+
+        <div class="grid">
+            <div class="card">
+                <div class="card-header">
+                    <h3>Messages Produced</h3>
+                    <span class="card-icon">📤</span>
+                </div>
+                <div class="value" id="messagesProduced">0</div>
+                <div class="label">Total messages produced</div>
+                <div class="card-details">
+                    <div class="detail-row">
+                        <span class="detail-label">Average per minute</span>
+                        <span class="detail-value" id="produceRate">-</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Last produced</span>
+                        <span class="detail-value" id="lastProduced">Never</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h3>Messages Consumed</h3>
+                    <span class="card-icon">📥</span>
+                </div>
+                <div class="value" id="messagesConsumed">0</div>
+                <div class="label">Total messages consumed</div>
+                <div class="card-details">
+                    <div class="detail-row">
+                        <span class="detail-label">Average per minute</span>
+                        <span class="detail-value" id="consumeRate">-</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Last consumed</span>
+                        <span class="detail-value" id="lastConsumed">Never</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h3>Replications</h3>
+                    <span class="card-icon">🔄</span>
+                </div>
+                <div class="value" id="replications">0</div>
+                <div class="label">Data replications received</div>
+                <div class="card-details">
+                    <div class="detail-row">
+                        <span class="detail-label">Last replication</span>
+                        <span class="detail-value" id="lastReplication">Never</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Replication health</span>
+                        <span class="detail-value">
+                            <span class="badge badge-success" id="replicationHealth">Active</span>
+                        </span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h3>Elections Won</h3>
+                    <span class="card-icon">🏆</span>
+                </div>
+                <div class="value" id="electionsWon">0</div>
+                <div class="label">Leadership elections won</div>
+                <div class="card-details">
+                    <div class="detail-row">
+                        <span class="detail-label">Leadership changes</span>
+                        <span class="detail-value" id="leadershipChanges">0</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Current status</span>
+                        <span class="detail-value" id="electionStatus">Monitoring</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h3>Total Topics</h3>
+                    <span class="card-icon">📚</span>
+                </div>
+                <div class="value" id="totalTopics">0</div>
+                <div class="label">Active topics in system</div>
+                <div class="card-details">
+                    <div class="detail-row">
+                        <span class="detail-label">Total partitions</span>
+                        <span class="detail-value" id="totalPartitions">0</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Total messages</span>
+                        <span class="detail-value" id="totalMessages">0</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h3>System Uptime</h3>
+                    <span class="card-icon">⏱️</span>
+                </div>
+                <div class="value" id="uptime">-</div>
+                <div class="label">Since last restart</div>
+                <div class="card-details">
+                    <div class="detail-row">
+                        <span class="detail-label">Activity events</span>
+                        <span class="detail-value" id="activityCount">0</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">System health</span>
+                        <span class="detail-value">
+                            <span class="badge badge-success">Healthy</span>
+                        </span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="two-column">
+            <div>
+                <div class="section">
+                    <div class="section-header">
+                        <div>
+                            <h2 data-icon="📚">Topics & Partitions</h2>
+                            <div class="section-subtitle">Detailed view of all topics with partition information</div>
+                        </div>
+                    </div>
+                    <div id="topicsTable">
+                        <div class="loading">Loading topics...</div>
+                    </div>
+                </div>
+
+                <div class="section">
+                    <div class="section-header">
+                        <div>
+                            <h2 data-icon="📊">System Statistics</h2>
+                            <div class="section-subtitle">Comprehensive broker performance metrics</div>
+                        </div>
+                    </div>
+                    <div class="stats-grid" id="systemStats">
+                        <div class="loading">Loading statistics...</div>
+                    </div>
+                </div>
+            </div>
+
+            <div>
+                <div class="section">
+                    <div class="section-header">
+                        <div>
+                            <h2 data-icon="📝">Recent Activity</h2>
+                            <div class="section-subtitle">Real-time event log (last 50 events)</div>
+                        </div>
+                    </div>
+                    <div class="activity-log" id="activityLog">
+                        <div class="loading">Loading activity...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let autoRefreshInterval = null;
+        let API_BASE = window.location.origin;
+        let startTime = Date.now();
+        let lastProducedTime = null;
+        let lastConsumedTime = null;
+        let produceCount = 0;
+        let consumeCount = 0;
+        let monitoringLeader = false;
+
+        // Check if we should monitor a different broker (leader)
+        function initializeMonitoring() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const leaderUrl = urlParams.get('leader');
+
+            if (leaderUrl) {
+                API_BASE = leaderUrl;
+                monitoringLeader = true;
+                console.log('Monitoring leader at:', API_BASE);
+            }
+        }
+
+        function formatUptime(ms) {
+            const seconds = Math.floor(ms / 1000);
+            const minutes = Math.floor(seconds / 60);
+            const hours = Math.floor(minutes / 60);
+            const days = Math.floor(hours / 24);
+
+            if (days > 0) return `${days}d ${hours % 24}h`;
+            if (hours > 0) return `${hours}h ${minutes % 60}m`;
+            if (minutes > 0) return `${minutes}m ${seconds % 60}s`;
+            return `${seconds}s`;
+        }
+
+        function calculateRate(count, timeMs) {
+            if (!timeMs || timeMs === 0) return '-';
+            const minutes = timeMs / (1000 * 60);
+            const rate = (count / minutes).toFixed(2);
+            return rate;
+        }
+
+        async function fetchHealth() {
+            try {
+                const response = await fetch(`${API_BASE}/health`);
+                const data = await response.json();
+
+                document.getElementById('brokerId').textContent = data.broker_id || 'Unknown';
+                document.getElementById('currentLeader').textContent = data.leader || 'None';
+
+                const badge = document.getElementById('statusBadge');
+                const electionStatus = document.getElementById('electionStatus');
+                if (data.is_leader) {
+                    badge.textContent = `Leader: ${data.broker_id}`;
+                    badge.className = 'status-badge status-leader';
+                    electionStatus.textContent = 'Active Leader';
+                } else {
+                    badge.textContent = `Follower: ${data.broker_id}`;
+                    badge.className = 'status-badge status-follower';
+                    electionStatus.textContent = 'Following';
+                }
+
+                const redisStatusDot = document.getElementById('redisStatusDot');
+                const redisStatus = document.getElementById('redisStatus');
+                if (data.redis_connected) {
+                    redisStatusDot.className = 'status-dot connected';
+                    redisStatus.textContent = 'Connected';
+                } else {
+                    redisStatusDot.className = 'status-dot disconnected';
+                    redisStatus.textContent = 'Disconnected';
+                }
+            } catch (error) {
+                console.error('Error fetching health:', error);
+                const badge = document.getElementById('statusBadge');
+                badge.textContent = 'Disconnected';
+                badge.className = 'status-badge status-unknown';
+                document.getElementById('redisStatusDot').className = 'status-dot disconnected';
+                document.getElementById('redisStatus').textContent = 'Error';
+            }
+        }
+
+        async function fetchMetrics() {
+            try {
+                const response = await fetch(`${API_BASE}/metrics`);
+                const data = await response.json();
+
+                // Update main metrics
+                const produced = data.messages_produced || 0;
+                const consumed = data.messages_consumed || 0;
+
+                document.getElementById('messagesProduced').textContent = produced;
+                document.getElementById('messagesConsumed').textContent = consumed;
+                document.getElementById('replications').textContent = data.replications_received || 0;
+                document.getElementById('electionsWon').textContent = data.elections_won || 0;
+                document.getElementById('leadershipChanges').textContent = data.leadership_changes || 0;
+                document.getElementById('leaseTime').textContent = data.lease_time_seconds || 10;
+
+                // Calculate rates
+                const uptimeMs = Date.now() - startTime;
+                document.getElementById('produceRate').textContent = calculateRate(produced, uptimeMs) + '/min';
+                document.getElementById('consumeRate').textContent = calculateRate(consumed, uptimeMs) + '/min';
+
+                // Last replication
+                document.getElementById('lastReplication').textContent = data.last_replication || 'Never';
+
+                // Replication health
+                const replicationHealth = document.getElementById('replicationHealth');
+                if (data.replications_received > 0) {
+                    replicationHealth.textContent = 'Active';
+                    replicationHealth.className = 'badge badge-success';
+                } else {
+                    replicationHealth.textContent = 'Idle';
+                    replicationHealth.className = 'badge badge-warning';
+                }
+
+                // Uptime
+                document.getElementById('uptime').textContent = formatUptime(uptimeMs);
+
+                // Activity count
+                const activityCount = data.recent_activity ? data.recent_activity.length : 0;
+                document.getElementById('activityCount').textContent = activityCount;
+
+                // Update last produced/consumed times from activity
+                if (data.recent_activity && data.recent_activity.length > 0) {
+                    const produceActivity = data.recent_activity.find(a => a.type === 'produce');
+                    const consumeActivity = data.recent_activity.find(a => a.type === 'consume');
+
+                    if (produceActivity) {
+                        document.getElementById('lastProduced').textContent = produceActivity.timestamp;
+                    }
+                    if (consumeActivity) {
+                        document.getElementById('lastConsumed').textContent = consumeActivity.timestamp;
+                    }
+                }
+
+                // Update activity log
+                const activityLog = document.getElementById('activityLog');
+                if (data.recent_activity && data.recent_activity.length > 0) {
+                    activityLog.innerHTML = data.recent_activity.map(activity => `
+                        <div class="activity-item ${activity.type}">
+                            <div class="activity-time">${activity.timestamp}</div>
+                            <div class="activity-message">${activity.message}</div>
+                        </div>
+                    `).join('');
+                } else {
+                    activityLog.innerHTML = `
+                        <div class="empty-state">
+                            <div class="empty-state-icon">📭</div>
+                            <div class="empty-state-text">No recent activity</div>
+                        </div>
+                    `;
+                }
+
+                // Update system stats
+                updateSystemStats(data);
+
+            } catch (error) {
+                console.error('Error fetching metrics:', error);
+            }
+        }
+
+        function updateSystemStats(data) {
+            const statsGrid = document.getElementById('systemStats');
+
+            const stats = [
+                {
+                    label: 'Total Operations',
+                    value: (data.messages_produced + data.messages_consumed + data.replications_received),
+                    icon: '⚡'
+                },
+                {
+                    label: 'Produce Rate',
+                    value: calculateRate(data.messages_produced, Date.now() - startTime) + '/min',
+                    icon: '📤'
+                },
+                {
+                    label: 'Consume Rate',
+                    value: calculateRate(data.messages_consumed, Date.now() - startTime) + '/min',
+                    icon: '📥'
+                },
+                {
+                    label: 'Replication Rate',
+                    value: calculateRate(data.replications_received, Date.now() - startTime) + '/min',
+                    icon: '🔄'
+                },
+                {
+                    label: 'Elections Participated',
+                    value: data.elections_won || 0,
+                    icon: '🗳️'
+                },
+                {
+                    label: 'Leadership Transfers',
+                    value: data.leadership_changes || 0,
+                    icon: '🔀'
+                }
+            ];
+
+            statsGrid.innerHTML = stats.map(stat => `
+                <div class="stat-box">
+                    <div class="stat-box-label">${stat.icon} ${stat.label}</div>
+                    <div class="stat-box-value">${stat.value}</div>
+                </div>
+            `).join('');
+        }
+
+        async function fetchTopics() {
+            try {
+                const response = await fetch(`${API_BASE}/topics`);
+                const data = await response.json();
+
+                const topicsTable = document.getElementById('topicsTable');
+
+                if (data.topics && data.topics.length > 0) {
+                    let totalPartitions = 0;
+                    let totalMessages = 0;
+
+                    data.topics.forEach(topic => {
+                        totalPartitions += topic.partitions || 0;
+                        totalMessages += topic.messages || 0;
+                    });
+
+                    document.getElementById('totalTopics').textContent = data.topics.length;
+                    document.getElementById('totalPartitions').textContent = totalPartitions;
+                    document.getElementById('totalMessages').textContent = totalMessages;
+
+                    topicsTable.innerHTML = `
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Topic Name</th>
+                                    <th>Partitions</th>
+                                    <th>Messages</th>
+                                    <th>Avg Msgs/Partition</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${data.topics.map(topic => {
+                        const avgMsgs = topic.partitions > 0 ? (topic.messages / topic.partitions).toFixed(1) : 0;
+                        const status = topic.messages > 0 ? 'Active' : 'Empty';
+                        const badgeClass = topic.messages > 0 ? 'badge-success' : 'badge-warning';
+
+                        return `
+                                        <tr>
+                                            <td><strong>${topic.name}</strong></td>
+                                            <td>${topic.partitions}</td>
+                                            <td>${topic.messages}</td>
+                                            <td>${avgMsgs}</td>
+                                            <td><span class="badge ${badgeClass}">${status}</span></td>
+                                        </tr>
+                                    `;
+                    }).join('')}
+                            </tbody>
+                        </table>
+
+                        <div style="margin-top: 20px;">
+                            <div class="mini-card">
+                                <span class="mini-card-label">📊 Total Topics</span>
+                                <span class="mini-card-value">${data.topics.length}</span>
+                            </div>
+                            <div class="mini-card">
+                                <span class="mini-card-label">🔢 Total Partitions</span>
+                                <span class="mini-card-value">${totalPartitions}</span>
+                            </div>
+                            <div class="mini-card">
+                                <span class="mini-card-label">💬 Total Messages</span>
+                                <span class="mini-card-value">${totalMessages}</span>
+                            </div>
+                            <div class="mini-card">
+                                <span class="mini-card-label">📈 Avg Msgs per Topic</span>
+                                <span class="mini-card-value">${data.topics.length > 0 ? (totalMessages / data.topics.length).toFixed(1) : 0}</span>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    document.getElementById('totalTopics').textContent = '0';
+                    document.getElementById('totalPartitions').textContent = '0';
+                    document.getElementById('totalMessages').textContent = '0';
+
+                    topicsTable.innerHTML = `
+                        <div class="empty-state">
+                            <div class="empty-state-icon">📚</div>
+                            <div class="empty-state-text">No topics created yet</div>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                console.error('Error fetching topics:', error);
+                document.getElementById('topicsTable').innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">⚠️</div>
+                        <div class="empty-state-text">Error loading topics</div>
+                    </div>
+                `;
+            }
+        }
+
+        async function fetchAllData() {
+            await Promise.all([
+                fetchHealth(),
+                fetchMetrics(),
+                fetchTopics()
+            ]);
+        }
+
+        function setupAutoRefresh() {
+            const toggle = document.getElementById('autoRefreshToggle');
+
+            function startAutoRefresh() {
+                if (autoRefreshInterval) {
+                    clearInterval(autoRefreshInterval);
+                }
+                autoRefreshInterval = setInterval(fetchAllData, 5000);
+            }
+
+            function stopAutoRefresh() {
+                if (autoRefreshInterval) {
+                    clearInterval(autoRefreshInterval);
+                    autoRefreshInterval = null;
+                }
+            }
+
+            toggle.addEventListener('change', (e) => {
+                if (e.target.checked) {
+                    startAutoRefresh();
+                } else {
+                    stopAutoRefresh();
+                }
+            });
+
+            if (toggle.checked) {
+                startAutoRefresh();
+            }
+        }
+
+        // Initialize
+        fetchAllData();
+        setupAutoRefresh();
+    </script>
+</body>
+
+</html>
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
