@@ -16,7 +16,7 @@ class DeduplicatedConsumer:
     ✅ Persists offsets and completion state to handle restarts
     ✅ Dynamically fails over to new leader
     """
-
+#this is the consumer class
     def __init__(self, broker_list, consumer_group="default_group"):
         self.brokers = broker_list
         self.consumer_group = consumer_group
